@@ -20,6 +20,15 @@ class AudioTranscriptionView(APIView):
             headers = {
                 "Authorization": f"Bearer {settings.BHASINI_API_KEY}",
             }
+            headers = {
+                "Content-Type": "application/json",
+                # "User-Agent": "PostmanRuntime/7.42.0",
+                # "Accept": "*/*",
+                # "Accept-Encoding": "gzip, deflate, br",
+                # "Connection": "keep-alive",
+                # "Authorization": "PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs"
+                "Authorization": f"Bearer {settings.BHASINI_API_KEY}"
+            }
 
             # Prepare the payload and files for the request
             files = {'audio': audio_file}

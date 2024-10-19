@@ -24,13 +24,14 @@ const AudioRecorder: React.FC = () => {
       };
 
       mediaRecorder.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
-        const url = URL.createObjectURL(audioBlob);
+        const audioBlob = new Blob(audioChunks.current, { type: 'audio/webm' });
+        const wavBlob = await convertWebmToWav(audioBlob);
+        const url = URL.createObjectURL(wavBlob);
         setAudioUrl(url);
         setRecordings((prev) => [...prev, url]);
 
         // Send the audio to the Bhashini API for transcription
-        await sendAudioToBhashini(audioBlob);
+        await sendAudioToBhashini(wavBlob);
       };
 
       mediaRecorder.current.start();
@@ -46,21 +47,104 @@ const AudioRecorder: React.FC = () => {
     }
   };
 
+  const convertWebmToWav = async (webmBlob: Blob): Promise<Blob> => {
+    const audioContext = new AudioContext();
+    const arrayBuffer = await webmBlob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    const wavBuffer = audioBufferToWav(audioBuffer);
+    return new Blob([wavBuffer], { type: 'audio/wav' });
+  };
+
+  const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
+    const numberOfChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const format = 1; // 1 for PCM (uncompressed)
+    const bitDepth = 16;
+
+    const wavData = new DataView(new ArrayBuffer(44 + buffer.length * 2));
+    let offset = 0;
+
+    // Write WAV header
+    writeString(wavData, offset, 'RIFF'); offset += 4;
+    wavData.setUint32(offset, 36 + buffer.length * 2, true); offset += 4;
+    writeString(wavData, offset, 'WAVE'); offset += 4;
+    writeString(wavData, offset, 'fmt '); offset += 4;
+    wavData.setUint32(offset, 16, true); offset += 4; // Subchunk1Size
+    wavData.setUint16(offset, format, true); offset += 2; // AudioFormat
+    wavData.setUint16(offset, numberOfChannels, true); offset += 2;
+    wavData.setUint32(offset, sampleRate, true); offset += 4;
+    wavData.setUint32(offset, sampleRate * numberOfChannels * (bitDepth / 8), true); offset += 4; // ByteRate
+    wavData.setUint16(offset, numberOfChannels * (bitDepth / 8), true); offset += 2; // BlockAlign
+    wavData.setUint16(offset, bitDepth, true); offset += 2;
+    writeString(wavData, offset, 'data'); offset += 4;
+    wavData.setUint32(offset, buffer.length * 2, true); offset += 4; // Subchunk2Size
+
+    // Write PCM data
+    const channelData = buffer.getChannelData(0);
+    let i = 0;
+    while (i < channelData.length) {
+      wavData.setInt16(offset, channelData[i++] * 0x7FFF, true);
+      offset += 2;
+    }
+
+    return wavData.buffer;
+  };
+
+  const writeString = (view: DataView, offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  // Function to convert Blob to Base64
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = () => {
+        const base64String = reader.result?.toString().split(',')[1]; // Remove "data:*/*;base64,"
+        resolve(base64String || '');
+      };
+      reader.onerror = () => {
+        reject('Error reading blob as base64');
+      };
+    });
+  };
+
   const sendAudioToBhashini = async (audioBlob: Blob) => {
     try {
-      // Prepare the form data for sending the audio file
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'audio.wav');
+      const base64Audio = await blobToBase64(audioBlob);
+      const payload = {
+        pipelineTasks: [
+          {
+            taskType: "asr",
+            config: {
+              language: {
+                sourceLanguage: "gu"
+              },
+              serviceId: "",
+              audioFormat: "wav",
+              samplingRate: 16000
+            }
+          }
+        ],
+        inputData: {
+          audio: [
+            {
+              audioContent: base64Audio
+            }
+          ]
+        }
+      };
 
       // Make a POST request to the Bhashini API
-      const response = await axios.post('YOUR_API_ENDPOINT', formData, {
+      const response = await axios.post('https://dhruva-api.bhashini.gov.in/services/inference/pipeline', payload, {
         headers: {
-          'Authorization': `Bearer YOUR_API_KEY`,
-          'Content-Type': 'multipart/form-data',
+          'Authorization': `PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs`,
+          'Content-Type': 'application/json',
         },
       });
 
-      // Assuming the API returns the transcription in Gujarati in a `transcription` field
       const gujaratiText = response.data.transcription;
       setTranscription(gujaratiText);
     } catch (error) {
