@@ -1,77 +1,60 @@
+# api/views.py
+import base64
 import requests
-from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from .serializers import AudioUploadSerializer
-from django.conf import settings
-from rest_framework.parsers import MultiPartParser
-import json
 
-class AudioTranscriptionView(APIView):
-    parser_classes = [MultiPartParser]
-
-    def post(self, request):
+class TranscriptionView(APIView):
+    def post(self, request, *args, **kwargs):
         serializer = AudioUploadSerializer(data=request.data)
         if serializer.is_valid():
             audio_file = serializer.validated_data['audio']
 
-            # Define the Bhasini API endpoint and your credentials
-            url = "https://dhruva-api.bhashini.gov.in/services/inference/pipeline"
-            headers = {
-                "Authorization": f"Bearer {settings.BHASINI_API_KEY}",
-            }
-            headers = {
-                "Content-Type": "application/json",
-                # "User-Agent": "PostmanRuntime/7.42.0",
-                # "Accept": "*/*",
-                # "Accept-Encoding": "gzip, deflate, br",
-                # "Connection": "keep-alive",
-                # "Authorization": "PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs"
-                "Authorization": f"Bearer {settings.BHASINI_API_KEY}"
-            }
+            # Convert the audio file to base64
+            audio_content = audio_file.read()
+            base64_audio = base64.b64encode(audio_content).decode('utf-8')
 
-            # Prepare the payload and files for the request
-            files = {'audio': audio_file}
-            data = {
-                "pipelineId": "64392f96daac500b55c543cd",  # MeitY pipeline ID for ASR+NMT
-                "input": {
-                    "sourceLanguage": "en",  # Assuming the audio is in English
-                    "targetLanguage": "gu"   # The desired output language (Gujarati)
+            # Create payload for Bhashini API
+            payload = {
+                "pipelineTasks": [
+                    {
+                        "taskType": "asr",
+                        "config": {
+                            "language": {
+                                "sourceLanguage": "gu"
+                            },
+                            "audioFormat": "wav",
+                            "samplingRate": 16000
+                        }
+                    }
+                ],
+                "inputData": {
+                    "audio": [
+                        {
+                            "audioContent": base64_audio
+                        }
+                    ]
                 }
             }
 
+            # Make a POST request to the Bhashini API
             try:
-                # Send the request to Bhasini
-                response = requests.post(url, data={'json': json.dumps(data)}, files=files, headers=headers)
-                print("brijesh-response-outside", dir(response))
-                # print("brijesh-response-outside", response.json())
+                response = requests.post(
+                    'https://dhruva-api.bhashini.gov.in/services/inference/pipeline',
+                    json=payload,
+                    headers={
+                        'Authorization': 'PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs',
+                        'Content-Type': 'application/json',
+                    },
+                )
+                response_data = response.json()
+                print("response_data", response_data.get("pipelineResponse")[0].get("output")[0].get("source"))
+                transcription = response_data.get('transcription', response_data.get("pipelineResponse")[0].get("output")[0].get("source"))
 
-                
-                # Log the response for debugging
-                print("Response content:", response.content)
-                print("Response status code:", response.status_code)
-
-                # Check if the response is JSON
-                if 'application/json' in response.headers.get('Content-Type', ''):
-                    response_data = response.json()
-                    print("brijesh response====", response)
-                    if response.status_code == 200:
-                        transcription = response_data.get("output", {}).get("translation", "No translation found")
-                        return Response({"transcription": transcription}, status=status.HTTP_200_OK)
-                    else:
-                        return Response({
-                            "error": response_data.get("message", "An error occurred while processing the request.")
-                        }, status=response.status_code)
-                else:
-                    return Response({
-                        "error-in-else": f"Unexpected response format: {response.content.decode('utf-8')}"
-                    }, status=response.status_code)
-
+                return Response({'transcription': transcription}, status=status.HTTP_200_OK)
             except requests.exceptions.RequestException as e:
-                return Response({"error": f"Request failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            except ValueError:
-                return Response({
-                    "error": "Invalid response format from Bhasini API."
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

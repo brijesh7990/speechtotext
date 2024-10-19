@@ -45,6 +45,7 @@ LOCAL_APPS = [
 
 THIRD_PARTY_APPS = [
     'drf_yasg',
+    'corsheaders',
 ]
 
 INSTALLED_APPS += THIRD_PARTY_APPS + LOCAL_APPS
@@ -52,6 +53,7 @@ INSTALLED_APPS += THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -134,3 +136,4 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # BHASINI_API_KEY = "2865f6f153-8402-4aba-8442-b928ecfaa612"
 BHASINI_API_KEY = "PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs"
+CORS_ALLOW_ALL_ORIGINS = True
