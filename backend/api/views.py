@@ -1,22 +1,32 @@
-# api/views.py
+# views.py
 import base64
+import json
 import requests
 from rest_framework import status
-from rest_framework.response import Response
 from rest_framework.views import APIView
-from .serializers import AudioUploadSerializer
+from rest_framework.response import Response
+from rest_framework.generics import RetrieveUpdateAPIView
+from django.conf import settings
+from .models import AudioRecord
+from .serializers import AudioRecordSerializer
 
-class TranscriptionView(APIView):
+# Bhashini API details
+BHASHINI_API_URL = "https://dhruva-api.bhashini.gov.in/services/inference/pipeline"
+BHASHINI_API_KEY = "PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs"
+
+class ProcessAudioView(APIView):
+    """
+    Handles uploading audio files and processing them with Bhashini API.
+    """
     def post(self, request, *args, **kwargs):
-        serializer = AudioUploadSerializer(data=request.data)
-        if serializer.is_valid():
-            audio_file = serializer.validated_data['audio']
+        if 'file' not in request.FILES:
+            return Response({"error": "No file part in the request"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Convert the audio file to base64
-            audio_content = audio_file.read()
-            base64_audio = base64.b64encode(audio_content).decode('utf-8')
-
-            # Create payload for Bhashini API
+        file = request.FILES['file']
+        
+        try:
+            # Convert audio file to base64
+            audio_base64 = base64.b64encode(file.read()).decode('utf-8')
             payload = {
                 "pipelineTasks": [
                     {
@@ -33,28 +43,47 @@ class TranscriptionView(APIView):
                 "inputData": {
                     "audio": [
                         {
-                            "audioContent": base64_audio
+                            "audioContent": audio_base64
                         }
                     ]
                 }
             }
 
-            # Make a POST request to the Bhashini API
-            try:
-                response = requests.post(
-                    'https://dhruva-api.bhashini.gov.in/services/inference/pipeline',
-                    json=payload,
-                    headers={
-                        'Authorization': 'PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs',
-                        'Content-Type': 'application/json',
-                    },
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {BHASHINI_API_KEY}",
+            }
+
+            # Send request to Bhashini API
+            response = requests.post(BHASHINI_API_URL, headers=headers, data=json.dumps(payload))
+
+            if response.status_code == 200:
+                transcription = response.json().get('pipelineResponse', [{}])[0].get('output', [{}])[0].get('source', '')
+                
+                # Save the audio file and transcription to the database
+                audio_record = AudioRecord.objects.create(
+                    audio_file=file,
+                    original_transcription=transcription
                 )
-                response_data = response.json()
-                print("response_data", response_data.get("pipelineResponse")[0].get("output")[0].get("source"))
-                transcription = response_data.get('transcription', response_data.get("pipelineResponse")[0].get("output")[0].get("source"))
+                serializer = AudioRecordSerializer(audio_record)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            else:
+                return Response({"error": "ASR service failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-                return Response({'transcription': transcription}, status=status.HTTP_200_OK)
-            except requests.exceptions.RequestException as e:
-                return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+class EditTranscriptionView(RetrieveUpdateAPIView):
+    """
+    Handles retrieving and updating the edited transcription of an audio record.
+    """
+    queryset = AudioRecord.objects.all()
+    serializer_class = AudioRecordSerializer
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        edited_transcription = request.data.get('edited_transcription', None)
+        if edited_transcription:
+            instance.edited_transcription = edited_transcription
+            instance.save()
+            return Response(AudioRecordSerializer(instance).data, status=status.HTTP_200_OK)
+        return Response({"error": "No edited transcription provided"}, status=status.HTTP_400_BAD_REQUEST)

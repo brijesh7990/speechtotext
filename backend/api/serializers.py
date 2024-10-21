@@ -1,9 +1,7 @@
 from rest_framework import serializers
+from .models import AudioRecord
 
-class AudioUploadSerializer(serializers.Serializer):
-    audio = serializers.FileField()
-
-    def validate_audio(self, value):
-        if not value.name.endswith(('.wav', '.mp3', '.webm')):
-            raise serializers.ValidationError('Only .wav, .mp3, or .webm files are allowed.')
-        return value
+class AudioRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AudioRecord
+        fields = ['id', 'audio_file', 'original_transcription', 'edited_transcription', 'created_at', 'updated_at']
