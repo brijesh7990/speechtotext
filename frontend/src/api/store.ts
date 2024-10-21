@@ -1,7 +1,11 @@
 import { configureStore } from "@reduxjs/toolkit";
+import { audioApi } from "@/services/api";
+
 
 export const store = configureStore({
-  reducer: {},
+  reducer: {
+    [audioApi.reducerPath]: audioApi.reducer,
+  },
 });
 
 // Infer the `RootState` and `AppDispatch` types from the store itself

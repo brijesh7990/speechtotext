@@ -1,16 +1,30 @@
 import { useState, useRef } from "react";
+import React from "react";
 import axios from "axios";
 import { BsFillMicFill, BsFillStopFill } from "react-icons/bs";
-import { Button } from "./components/ui/button";
+import { Button } from "./components/ui/button"; // Make sure this path is correct for your Button component
+import { IoMoon, IoSunny } from "react-icons/io5";
 
 const AudioRecorder: React.FC = () => {
+  const [dark, setDark] = React.useState(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [recordings, setRecordings] = useState<string[]>([]);
   const [transcription, setTranscription] = useState<string | null>(null);
+  const [editedTranscription, setEditedTranscription] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
+  const [transcriptionId, setTranscriptionId] = useState<number | null>(null); // Added state for transcription ID
 
+  // Toggle Dark Mode
+  const darkModeHandler = () => {
+    setDark(!dark);
+    document.body.classList.toggle("dark");
+  };
+
+  // Start Audio Recording
   const startRecording = async () => {
     try {
       setIsRecording(true);
@@ -30,8 +44,8 @@ const AudioRecorder: React.FC = () => {
         setAudioUrl(url);
         setRecordings((prev) => [...prev, url]);
 
-        // Send the audio directly to the Bhashini API for transcription
-        await sendAudioToBhashini(wavBlob);
+        // Send audio directly to the backend for transcription
+        await sendAudioToBackend(wavBlob);
       };
 
       mediaRecorder.current.start();
@@ -40,6 +54,7 @@ const AudioRecorder: React.FC = () => {
     }
   };
 
+  // Stop Audio Recording
   const stopRecording = () => {
     if (mediaRecorder.current) {
       mediaRecorder.current.stop();
@@ -47,6 +62,7 @@ const AudioRecorder: React.FC = () => {
     }
   };
 
+  // Convert WebM to WAV
   const convertWebmToWav = async (webmBlob: Blob): Promise<Blob> => {
     const audioContext = new AudioContext();
     const arrayBuffer = await webmBlob.arrayBuffer();
@@ -55,6 +71,7 @@ const AudioRecorder: React.FC = () => {
     return new Blob([wavBuffer], { type: "audio/wav" });
   };
 
+  // Helper function to convert AudioBuffer to WAV
   const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
     const numberOfChannels = buffer.numberOfChannels;
     const sampleRate = buffer.sampleRate;
@@ -107,123 +124,166 @@ const AudioRecorder: React.FC = () => {
     return wavData.buffer;
   };
 
+  // Helper function to write string to DataView
   const writeString = (view: DataView, offset: number, str: string) => {
     for (let i = 0; i < str.length; i++) {
       view.setUint8(offset + i, str.charCodeAt(i));
     }
   };
 
-  const sendAudioToBhashini = async (audioBlob: Blob) => {
+  // Send audio to backend
+  const sendAudioToBackend = async (audioBlob: Blob) => {
+    setLoading(true);
     try {
-      // Convert audio Blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(audioBlob);
-      reader.onloadend = async () => {
-        const base64Audio = reader.result!.split(",")[1]; // Get base64 part
+      const formData = new FormData();
+      formData.append("file", audioBlob);
 
-        // Create payload for Bhashini API
-        const payload = {
-          pipelineTasks: [
-            {
-              taskType: "asr",
-              config: {
-                language: {
-                  sourceLanguage: "gu",
-                },
-                audioFormat: "wav",
-                samplingRate: 16000,
-              },
-            },
-          ],
-          inputData: {
-            audio: [
-              {
-                audioContent: base64Audio,
-              },
-            ],
+      const response = await axios.post(
+        "http://localhost:5000/process_audio",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
           },
-        };
-
-        // Make a POST request to the Bhashini API
-        try {
-          const response = await axios.post(
-            "https://dhruva-api.bhashini.gov.in/services/inference/pipeline",
-            payload,
-            {
-              headers: {
-                Authorization:
-                  "PcYD3f6WgosaSlLXLa7K7f5OteKLYQ6Cjyn0dyHEt2Fm7Ho7Sq-oo44N73XZvdDs",
-                "Content-Type": "application/json",
-              },
-            }
-          );
-          console.log("brijesh response is here =====", response)
-          const transcription =
-            response.data.transcription ||
-            response.data.pipelineResponse[0].output[0].source ||
-            "No transcription available";
-          setTranscription(transcription);
-        } catch (error) {
-          console.error("Error sending audio to Bhashini API:", error);
         }
-      };
+      );
+
+      console.log("Response from backend:", response.data);
+
+      // Extract the transcription text and ID from the response
+      const transcriptionText = response.data.text || "No transcription available";
+      const transcriptionId = response.data.id; // Get the transcription ID from the response
+
+      // Set the transcription and ID states
+      setTranscription(transcriptionText);
+      setEditedTranscription(transcriptionText);
+      setTranscriptionId(transcriptionId); // Store the transcription ID
     } catch (error) {
-      console.error("Error reading audio file:", error);
+      console.error("Error sending audio to backend:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle transcription edit
+  const handleEdit = () => {
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setEditedTranscription(transcription);
+    setIsEditing(false);
+  };
+
+  const handleSubmitEdit = async () => {
+    if (transcriptionId !== null) {
+      try {
+        const response = await axios.post("http://localhost:5000/submit_audio", {
+          id: transcriptionId, // Send the transcription ID
+          text: editedTranscription, // Send the updated text
+        });
+        console.log("API response:", response.data);
+        setIsEditing(false);
+        setTranscription(editedTranscription); // Update transcription after successful submission
+      } catch (error) {
+        console.error("Error submitting edited transcription:", error);
+      }
     }
   };
 
   return (
-    <div className="bg-slate-800 w-full h-[100vh] flex justify-center items-center">
-      <div className="flex flex-col items-center p-6 bg-white shadow-lg rounded-lg max-w-md mx-auto md:w-[1000px] w-[500px]">
-        <h2 className="text-2xl font-semibold mb-4">Audio Recorder</h2>
-        <div className="flex justify-center items-center mb-4">
-          {isRecording ? (
-            <Button
-              className="bg-red-500 text-white flex items-center"
-              onClick={stopRecording}
-            >
-              <BsFillStopFill className="mr-2" /> Stop Recording
-            </Button>
-          ) : (
-            <Button
-              className="bg-green-500 text-white flex items-center"
-              onClick={startRecording}
-            >
-              <BsFillMicFill className="mr-2" /> Start Recording
-            </Button>
-          )}
-        </div>
-        {audioUrl && (
-          <audio controls className="w-full mb-4">
-            <source src={audioUrl} type="audio/wav" />
-            Your browser does not support the audio element.
-          </audio>
-        )}
-        <div className="w-full">
-          <h3 className="text-lg font-medium mb-2">Recordings:</h3>
-          {recordings.length > 0 ? (
-            <ul className="space-y-2">
-              {recordings.map((url, index) => (
-                <li key={index} className="flex items-center space-x-2">
-                  <audio controls className="w-full">
-                    <source src={url} type="audio/wav" />
-                  </audio>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-gray-500">No recordings yet.</p>
-          )}
-        </div>
-        {transcription && (
-          <div className="w-full mt-4">
-            <h3 className="text-lg font-medium mb-2">Transcription:</h3>
-            <p className="bg-gray-100 p-4 rounded">{transcription}</p>
-          </div>
-        )}
+    <>
+      <div className="bg-white dark:bg-black">
+        <button
+          onClick={darkModeHandler}
+          className="mt-10 absolute right-10"
+        >
+          {dark ? <IoSunny size={30} /> : <IoMoon size={30} />}
+        </button>
       </div>
+      <div className="bg-white dark:bg-black w-full h-[90vh] flex justify-center items-center">
+        <div className="flex flex-col items-center p-6 bg-white shadow-lg rounded-lg max-w-md mx-auto md:w-[1000px] w-[500px]">
+          <h2 className="text-2xl font-semibold mb-4 dark:text-green-500">
+            Audio Recorder
+          </h2>
+          <div className="flex justify-center items-center mb-4">
+            {isRecording ? (
+              <Button
+                className="bg-red-500 text-white flex items-center"
+                onClick={stopRecording}
+              >
+                <BsFillStopFill className="mr-2" /> Stop Recording
+              </Button>
+            ) : (
+              <Button
+                className="bg-black dark:bg-green-600 dark:hover:bg-black text-white flex items-center"
+                onClick={startRecording}
+              >
+                <BsFillMicFill className="mr-2" /> Start Recording
+              </Button>
+            )}
+          </div>
+          {loading ? (
+            <div className="text-center text-gray-500">Loading...</div>
+          ) : (
+            <>
+              {audioUrl && (
+                <audio controls className="w-full mb-4">
+                  <source src={audioUrl} type="audio/wav" />
+                  Your browser does not support the audio element.
+                </audio>
+              )}
+              {transcription && (
+                <div className="w-full mt-4">
+                  {isEditing ? (
+                    <div className="flex flex-col">
+                      <textarea
+                        value={editedTranscription || ""}
+                        onChange={(e) => setEditedTranscription(e.target.value)}
+                        className="border p-2 dark:bg-gray-800 dark:text-white"
+                      />
+                      <div className="flex justify-end mt-2">
+                        <Button
+                          onClick={handleSubmitEdit}
+                          className="bg-green-500 text-white"
+                        >
+                          Submit
+                        </Button>
+                        <Button
+                          onClick={handleCancelEdit}
+                          className="bg-gray-500 text-white ml-2"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-black dark:text-black">
+                      {transcription}
+                      <Button
+                        onClick={handleEdit}
+                        className="ml-2 text-blue-500 underline"
+                      >
+                        Edit
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <div>
+      <AudioRecorder />
     </div>
   );
 };
 
-export default AudioRecorder;
+export default App;
