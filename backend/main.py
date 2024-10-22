@@ -4,6 +4,13 @@ import json
 import base64
 from flask_cors import CORS
 import sqlite3
+from googletrans import Translator
+from nltk.sentiment import SentimentIntensityAnalyzer
+
+sia = SentimentIntensityAnalyzer()
+
+# import nltk
+# nltk.download('vader_lexicon')
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -95,6 +102,7 @@ def process_audio():
         return jsonify({"error": str(e)}), 500
 
 
+# @app.route('/submit_audio', methods=['POST'])
 @app.route('/submit_audio', methods=['POST'])
 def submit_audio():
     try:
@@ -107,27 +115,36 @@ def submit_audio():
         # Extract data
         id = int(data['id'])
         text = data['text']
+        print("id=====", id)
+        print("text=====", text)
 
-        print("brijesh id1 ===", id)
-        print("brijesh text1 ===", text)
+        translator = Translator()
+        translation = translator.translate(text, src='gu', dest='en')
+
+        # Access the translated text
+        translated_text = translation.text
+
+        # Perform sentiment analysis on the translated text
+        sentiment_scores = sia.polarity_scores(translated_text)
+        compound_score = sentiment_scores['compound']
+        print("compound_score", compound_score)
 
         # Connect to the SQLite database
         connection = sqlite3.connect('audio_data.db')
         cursor = connection.cursor()
-        print("brijesh id ===", id)
-        print("brijesh text ===", text)
 
         # Update the record in the database
-        cursor.execute("""
-            UPDATE audio_records
-            SET edit_source = ?
-            WHERE id = ?;
-        """, (text, id))
+        cursor.execute(""" 
+            UPDATE audio_records 
+            SET edit_source = ?, sentiment_anaylis = ? 
+            WHERE id = ?; 
+        """, (text, compound_score, id))
 
         # Commit changes to the database
         connection.commit()
 
         # Check if any rows were affected (record updated)
+        print("cursor.rowcount", cursor.rowcount)
         if cursor.rowcount == 0:
             return jsonify({'status': 'fail', 'message': 'Record not found'}), 404
 
@@ -138,12 +155,49 @@ def submit_audio():
         return jsonify({'status': 'success', 'message': 'Record updated successfully'}), 200
 
     except sqlite3.Error as e:
+        print("sqlite e", e)
         # Handle database-related errors
         return jsonify({'status': 'fail', 'message': f'Database error: {str(e)}'}), 500
 
     except Exception as e:
+        print(e)
         # Handle any other exceptions
         return jsonify({'status': 'fail', 'message': f'An error occurred: {str(e)}'}), 500
+
+
+# from flask import Flask, jsonify
+# import sqlite3
+#
+# app = Flask(__name__)
+
+
+def get_db_connection():
+    conn = sqlite3.connect('audio_data.db')
+    conn.row_factory = sqlite3.Row  # This allows fetching rows as dictionaries
+    return conn
+
+
+@app.route('/get_grievance_records', methods=['GET'])
+def fetch_all_audio_records():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT  id , source , edit_source, sentiment_anaylis FROM audio_records')
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Convert rows to a list of dictionaries
+        audio_records = [dict(row) for row in rows]
+
+        return jsonify(audio_records), 200  # 200 OK
+    except sqlite3.Error as e:
+        # Log the error message (in a real app, consider logging this to a file)
+        error_message = str(e)
+        return jsonify({"error": "Database error occurred", "message": error_message}), 500  # 500 Internal Server Error
+    except Exception as e:
+        # Handle any other exceptions
+        error_message = str(e)
+        return jsonify({"error": "An unexpected error occurred", "message": error_message}), 500
 
 
 # Run the Flask app

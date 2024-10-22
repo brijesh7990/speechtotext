@@ -4,6 +4,11 @@ import axios from "axios";
 import { BsFillMicFill, BsFillStopFill } from "react-icons/bs";
 import { Button } from "./components/ui/button"; // Make sure this path is correct for your Button component
 import { IoMoon, IoSunny } from "react-icons/io5";
+import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
+import Loader from "./components/Loader";
+import GrievanceList from "./components/GrievanceList"
+
 
 const AudioRecorder: React.FC = () => {
   const [dark, setDark] = React.useState(false);
@@ -11,7 +16,9 @@ const AudioRecorder: React.FC = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [recordings, setRecordings] = useState<string[]>([]);
   const [transcription, setTranscription] = useState<string | null>(null);
-  const [editedTranscription, setEditedTranscription] = useState<string | null>(null);
+  const [editedTranscription, setEditedTranscription] = useState<string | null>(
+    null
+  );
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -151,7 +158,8 @@ const AudioRecorder: React.FC = () => {
       console.log("Response from backend:", response.data);
 
       // Extract the transcription text and ID from the response
-      const transcriptionText = response.data.text || "No transcription available";
+      const transcriptionText =
+        response.data.text || "No transcription available";
       const transcriptionId = response.data.id; // Get the transcription ID from the response
 
       // Set the transcription and ID states
@@ -178,10 +186,13 @@ const AudioRecorder: React.FC = () => {
   const handleSubmitEdit = async () => {
     if (transcriptionId !== null) {
       try {
-        const response = await axios.post("http://localhost:5000/submit_audio", {
-          id: transcriptionId, // Send the transcription ID
-          text: editedTranscription, // Send the updated text
-        });
+        const response = await axios.post(
+          "http://localhost:5000/submit_audio",
+          {
+            id: transcriptionId, // Send the transcription ID
+            text: editedTranscription, // Send the updated text
+          }
+        );
         console.log("API response:", response.data);
         setIsEditing(false);
         setTranscription(editedTranscription); // Update transcription after successful submission
@@ -193,17 +204,17 @@ const AudioRecorder: React.FC = () => {
 
   return (
     <>
+      <div>
+        <Navbar />
+      </div>
       <div className="bg-white dark:bg-black">
-        <button
-          onClick={darkModeHandler}
-          className="mt-10 absolute right-10"
-        >
+        <button onClick={darkModeHandler} className="mt-10 absolute right-10">
           {dark ? <IoSunny size={30} /> : <IoMoon size={30} />}
         </button>
       </div>
-      <div className="bg-white dark:bg-black w-full h-[90vh] flex justify-center items-center">
-        <div className="flex flex-col items-center p-6 bg-white shadow-lg rounded-lg max-w-md mx-auto md:w-[1000px] w-[500px]">
-          <h2 className="text-2xl font-semibold mb-4 dark:text-green-500">
+      <div className=" dark:bg-black w-[100%] h-[88vh] flex justify-center items-center bg-[url('/cm-banner.jpg')] bg-no-repeat bg-contain bg-center">
+        <div className="flex flex-col items-center p-6 bg-white shadow-lg rounded-lg max-w-md dark:text-[#FBB917] mx-auto md:w-[1000px]">
+          <h2 className="text-4xl font-semibold mb-4 dark:text-orange-500">
             Audio Recorder
           </h2>
           <div className="flex justify-center items-center mb-4">
@@ -216,15 +227,17 @@ const AudioRecorder: React.FC = () => {
               </Button>
             ) : (
               <Button
-                className="bg-black dark:bg-green-600 dark:hover:bg-black text-white flex items-center"
+                className="bg-orange-500 dark:bg-orange-500 dark:hover:bg-black text-white flex items-center"
                 onClick={startRecording}
               >
-                <BsFillMicFill className="mr-2" /> Start Recording
+                <BsFillMicFill size={500} className="mr-2 text-white" /> Start
+                Recording
               </Button>
             )}
           </div>
           {loading ? (
-            <div className="text-center text-gray-500">Loading...</div>
+            // <div className="text-center text-gray-500">Loading...</div>
+            <Loader />
           ) : (
             <>
               {audioUrl && (
@@ -240,18 +253,18 @@ const AudioRecorder: React.FC = () => {
                       <textarea
                         value={editedTranscription || ""}
                         onChange={(e) => setEditedTranscription(e.target.value)}
-                        className="border p-2 dark:bg-gray-800 dark:text-white"
+                        className="border p-2 text-black text-3xl"
                       />
                       <div className="flex justify-end mt-2">
                         <Button
                           onClick={handleSubmitEdit}
-                          className="bg-green-500 text-white"
+                          className="bg-orange-500 text-white"
                         >
                           Submit
                         </Button>
                         <Button
                           onClick={handleCancelEdit}
-                          className="bg-gray-500 text-white ml-2"
+                          className="bg-black text-white ml-2"
                         >
                           Cancel
                         </Button>
@@ -259,13 +272,17 @@ const AudioRecorder: React.FC = () => {
                     </div>
                   ) : (
                     <div className="text-black dark:text-black">
-                      {transcription}
-                      <Button
-                        onClick={handleEdit}
-                        className="ml-2 text-blue-500 underline"
-                      >
-                        Edit
-                      </Button>
+                      <div className="w-full border-primary p-2  text-black  text-3xl">
+                        {transcription}
+                      </div>
+                      <div>
+                        <Button
+                          onClick={handleEdit}
+                          className=" bg-orange-500 text-white"
+                        >
+                          Edit
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -273,6 +290,12 @@ const AudioRecorder: React.FC = () => {
             </>
           )}
         </div>
+      </div>
+      <div>
+        <GrievanceList />
+      </div>
+      <div>
+        <Footer />
       </div>
     </>
   );
